@@ -2,12 +2,101 @@
 #include "img_converters.h"
 #include "debug_log.h"
 #include "light_service.h"
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 static bool g_cameraHealthy = false;
 static unsigned long g_captureFailureCount = 0;
 static AppConfig g_lastCfg;
+static int g_rotation = 0;
+static uint8_t *g_rotationBuffer = nullptr;
+static size_t g_rotationBufferSize = 0;
+static camera_fb_t *g_rotatedFrame = nullptr;
+
+static bool rotationSwapsDimensions(int rotation) {
+  return rotation == 90 || rotation == 270;
+}
+
+int cameraOutputWidth(const AppConfig &cfg) {
+  return rotationSwapsDimensions(cfg.camera.rotation)
+           ? cfg.camera.height
+           : cfg.camera.width;
+}
+
+int cameraOutputHeight(const AppConfig &cfg) {
+  return rotationSwapsDimensions(cfg.camera.rotation)
+           ? cfg.camera.width
+           : cfg.camera.height;
+}
+
+static bool ensureRotationBuffer(size_t bytes) {
+  if (g_rotationBuffer && g_rotationBufferSize >= bytes) return true;
+
+  uint8_t *next = (uint8_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!next) {
+    next = (uint8_t *)malloc(bytes);
+  }
+  if (!next) {
+    LOGE("Camera rotation: unable to allocate %u-byte buffer\n", (unsigned)bytes);
+    return false;
+  }
+
+  if (g_rotationBuffer) free(g_rotationBuffer);
+  g_rotationBuffer = next;
+  g_rotationBufferSize = bytes;
+  return true;
+}
+
+static bool rotateFrame(camera_fb_t *fb) {
+  if (!fb || !fb->buf || g_rotation == 0) return true;
+  if (fb->format != PIXFORMAT_GRAYSCALE) {
+    LOGE("Camera rotation requires a grayscale frame\n");
+    return false;
+  }
+
+  const size_t width = fb->width;
+  const size_t height = fb->height;
+  const size_t pixels = width * height;
+  if (fb->len < pixels) {
+    LOGE("Camera rotation: invalid frame length %u for %ux%u\n",
+         (unsigned)fb->len, (unsigned)width, (unsigned)height);
+    return false;
+  }
+
+  if (g_rotation == 180) {
+    for (size_t left = 0, right = pixels - 1; left < right; left++, right--) {
+      uint8_t tmp = fb->buf[left];
+      fb->buf[left] = fb->buf[right];
+      fb->buf[right] = tmp;
+    }
+    return true;
+  }
+
+  if (!ensureRotationBuffer(pixels)) return false;
+
+  const size_t outputWidth = height;
+  for (size_t y = 0; y < height; y++) {
+    for (size_t x = 0; x < width; x++) {
+      size_t outputX;
+      size_t outputY;
+      if (g_rotation == 90) {
+        outputX = height - 1 - y;
+        outputY = x;
+      } else {
+        outputX = y;
+        outputY = width - 1 - x;
+      }
+      g_rotationBuffer[outputY * outputWidth + outputX] = fb->buf[y * width + x];
+    }
+  }
+
+  memcpy(fb->buf, g_rotationBuffer, pixels);
+  fb->width = height;
+  fb->height = width;
+  g_rotatedFrame = fb;
+  return true;
+}
 
 static framesize_t cameraFrameSizeFromConfig(const AppConfig &cfg, int &resolvedW, int &resolvedH) {
   if (cfg.camera.width == 160 && cfg.camera.height == 120) {
@@ -157,6 +246,7 @@ bool cameraApplySettings(const AppConfig &cfg) {
 
   s->set_vflip(s, cfg.camera.vflip ? 1 : 0);
   s->set_hmirror(s, cfg.camera.hflip ? 1 : 0);
+  g_rotation = cfg.camera.rotation;
 
   int aec = cfg.camera.aec_value;
   if (aec < 0) aec = 0;
@@ -169,13 +259,14 @@ bool cameraApplySettings(const AppConfig &cfg) {
   s->set_aec_value(s, aec);
   s->set_agc_gain(s, agc);
 
-  LOGI("Camera tuning applied\n");
-  LOGD("Camera tuning: auto_exp=%d auto_gain=%d auto_wb=%d aec=%d agc=%d\n",
+  LOGI("Camera tuning applied (rotation=%d degrees)\n", g_rotation);
+  LOGD("Camera tuning: auto_exp=%d auto_gain=%d auto_wb=%d aec=%d agc=%d rotation=%d\n",
        cfg.camera.auto_exposure,
        cfg.camera.auto_gain,
        cfg.camera.auto_whitebalance,
        aec,
-       agc);
+       agc,
+       g_rotation);
 
   return true;
 }
@@ -299,12 +390,28 @@ camera_fb_t* cameraCapture() {
     g_captureFailureCount++;
   } else {
     g_cameraHealthy = true;
+    if (!rotateFrame(fb)) {
+      esp_camera_fb_return(fb);
+      g_cameraHealthy = false;
+      g_captureFailureCount++;
+      return nullptr;
+    }
   }
   return fb;
 }
 
 void cameraRelease(camera_fb_t *fb) {
-  if (fb) esp_camera_fb_return(fb);
+  if (!fb) return;
+
+  // The camera driver owns this descriptor and expects the sensor dimensions
+  // when it is returned. Pixel data itself will be replaced by the next capture.
+  if (fb == g_rotatedFrame) {
+    size_t width = fb->width;
+    fb->width = fb->height;
+    fb->height = width;
+    g_rotatedFrame = nullptr;
+  }
+  esp_camera_fb_return(fb);
 }
 
 bool cameraToJpeg(camera_fb_t *fb, int quality, uint8_t **jpg_buf, size_t *jpg_len) {

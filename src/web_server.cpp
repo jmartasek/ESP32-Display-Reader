@@ -129,11 +129,12 @@ void setupWebServer(WebServer &server, PubSubClient &mqtt, AppConfig &cfg, Strin
     doc["mqtt"]["connected"] = mqtt.connected();
     doc["mqtt"]["image_enabled"] = cfg.mqtt.image_enabled;
 
-    doc["camera"]["width"] = cfg.camera.width;
-    doc["camera"]["height"] = cfg.camera.height;
+    doc["camera"]["width"] = cameraOutputWidth(cfg);
+    doc["camera"]["height"] = cameraOutputHeight(cfg);
     doc["camera"]["model"] = cfg.camera.model;
     doc["camera"]["sensor"] = cameraSensorName();
-    doc["camera"]["frame"] = String(cfg.camera.width) + "x" + String(cfg.camera.height);
+    doc["camera"]["frame"] = String(cameraOutputWidth(cfg)) + "x" + String(cameraOutputHeight(cfg));
+    doc["camera"]["rotation"] = cfg.camera.rotation;
     doc["camera"]["jpeg_quality"] = cfg.camera.jpeg_quality;
     doc["camera"]["auto_exposure"] = cfg.camera.auto_exposure;
     doc["camera"]["auto_gain"] = cfg.camera.auto_gain;

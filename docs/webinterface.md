@@ -97,6 +97,12 @@ Bildqualität des Kamerabildes (0 = niedrigste Qualität / kleinste Datei, 63 = 
 **Vertical Flip / Horizontal Flip**
 Spiegelt das Bild vertikal oder horizontal, falls die Kamera verkehrt montiert ist.
 
+**Rotation**
+Dreht das Kamerabild um `0°`, `90°`, `180°` oder `270°` im Uhrzeigersinn.
+Die Drehung gilt einheitlich für Vorschau, Livebild, MQTT-Kamerabild und ROI-Auswertung.
+Bei `90°` und `270°` werden Bildbreite und Bildhöhe vertauscht. Nach einer Änderung
+sollten vorhandene ROI-Positionen geprüft und bei Bedarf neu ausgerichtet werden.
+
 **Auto Exposure / Auto Gain / Auto White Balance**
 Automatische Anpassung von Belichtung, Verstärkung und Weißabgleich.
 

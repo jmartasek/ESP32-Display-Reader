@@ -28,6 +28,7 @@ struct CameraConfig {
   int aec_value;
   int agc_gain;
 
+  int rotation;
   bool vflip;
   bool hflip;
 };

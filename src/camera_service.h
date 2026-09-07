@@ -21,6 +21,8 @@ bool cameraIsHealthy();
 void cameraMarkCaptureFailure();
 void cameraMarkCaptureSuccess();
 unsigned long cameraCaptureFailureCount();
+int cameraOutputWidth(const AppConfig &cfg);
+int cameraOutputHeight(const AppConfig &cfg);
 
 const char* cameraSensorName();
 bool cameraApplySettings(const AppConfig &cfg);

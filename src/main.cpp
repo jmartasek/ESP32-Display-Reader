@@ -80,7 +80,8 @@ static String buildHealthPayload() {
   doc["camera_ok"] = cameraIsHealthy();
   doc["camera_model"] = cfg.camera.model;
   doc["camera_sensor"] = cameraSensorName();
-  doc["camera_frame"] = String(cfg.camera.width) + "x" + String(cfg.camera.height);
+  doc["camera_frame"] = String(cameraOutputWidth(cfg)) + "x" + String(cameraOutputHeight(cfg));
+  doc["camera_rotation"] = cfg.camera.rotation;
 
   doc["camera_capture_failures"] = cameraCaptureFailureCount();
 

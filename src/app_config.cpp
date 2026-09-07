@@ -36,6 +36,19 @@ static void normalizeCameraFrame(CameraConfig &camera) {
   camera.height = kCameraFrameOptions[bestIdx].h;
 }
 
+static void normalizeCameraRotation(CameraConfig &camera) {
+  switch (camera.rotation) {
+    case 0:
+    case 90:
+    case 180:
+    case 270:
+      break;
+    default:
+      camera.rotation = 0;
+      break;
+  }
+}
+
 void loadDefaultConfig(AppConfig &cfg) {
 
   /* Segment Profiles */
@@ -101,9 +114,11 @@ void loadDefaultConfig(AppConfig &cfg) {
 
   cfg.camera.aec_value = 300;
   cfg.camera.agc_gain = 0;
+  cfg.camera.rotation = 0;
   cfg.camera.vflip = false;
   cfg.camera.hflip = false;
   normalizeCameraFrame(cfg.camera);
+  normalizeCameraRotation(cfg.camera);
 
   /* Light */
 
@@ -301,6 +316,7 @@ String configToJson(const AppConfig &cfg) {
   doc["camera"]["auto_whitebalance"] = cfg.camera.auto_whitebalance;
   doc["camera"]["aec_value"] = cfg.camera.aec_value;
   doc["camera"]["agc_gain"] = cfg.camera.agc_gain;
+  doc["camera"]["rotation"] = cfg.camera.rotation;
   doc["camera"]["vflip"] = cfg.camera.vflip;
   doc["camera"]["hflip"] = cfg.camera.hflip;
 
@@ -441,9 +457,11 @@ bool configFromJson(const String &json, AppConfig &cfg) {
   next.camera.auto_whitebalance = doc["camera"]["auto_whitebalance"] | cfg.camera.auto_whitebalance;
   next.camera.aec_value = doc["camera"]["aec_value"] | cfg.camera.aec_value;
   next.camera.agc_gain = doc["camera"]["agc_gain"] | cfg.camera.agc_gain;
+  next.camera.rotation = doc["camera"]["rotation"] | cfg.camera.rotation;
   next.camera.vflip = doc["camera"]["vflip"] | false;
   next.camera.hflip = doc["camera"]["hflip"] | false;
   normalizeCameraFrame(next.camera);
+  normalizeCameraRotation(next.camera);
 
   /* Light */
 

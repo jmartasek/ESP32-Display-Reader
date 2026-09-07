@@ -648,6 +648,15 @@ progress{
           </select>
         </label>
 
+        <label>Rotation
+          <select id="cam_rotation">
+            <option value="0">0°</option>
+            <option value="90">90° clockwise</option>
+            <option value="180">180°</option>
+            <option value="270">270° clockwise</option>
+          </select>
+        </label>
+
         <label>JPEG Quality <input id="cam_jpeg_quality" type="number" min="0" max="63"></label>
 
         <div class="two">
@@ -1229,6 +1238,16 @@ function frameValueFromWidthHeight(width, height) {
   return '320x240';
 }
 
+function cameraViewDimensions() {
+  const camera = state.config?.camera || {};
+  const width = camera.width || 320;
+  const height = camera.height || 240;
+  const rotation = Number(camera.rotation) || 0;
+  return (rotation === 90 || rotation === 270)
+    ? {width: height, height: width}
+    : {width, height};
+}
+
 function selectedRoi(){
   return state.config?.rois?.find(r => r.id === state.selected) || null;
 }
@@ -1588,9 +1607,8 @@ function setZoom(z){
 
 function updateZoomAndFrameLabel(){
   document.getElementById('zoomLabel').textContent = (state.zoom * 100) + '%';
-  const w = state.config?.camera?.width || 320;
-  const h = state.config?.camera?.height || 240;
-  document.getElementById('frameLabel').textContent = `${w}x${h}`;
+  const dimensions = cameraViewDimensions();
+  document.getElementById('frameLabel').textContent = `${dimensions.width}x${dimensions.height}`;
 }
 
 function applyZoom(){
@@ -1598,8 +1616,9 @@ function applyZoom(){
   const cv = document.getElementById('overlay');
   if (!img.naturalWidth || !state.config) return;
 
-  const w = state.config.camera.width * state.zoom;
-  const h = state.config.camera.height * state.zoom;
+  const dimensions = cameraViewDimensions();
+  const w = dimensions.width * state.zoom;
+  const h = dimensions.height * state.zoom;
 
   img.style.width = w + 'px';
   img.style.height = h + 'px';
@@ -1673,6 +1692,7 @@ function fillPanels(){
   document.getElementById('cam_model').value = state.config.camera.model || 'ai_thinker';
   document.getElementById('cam_frame').value =
     frameValueFromWidthHeight(state.config.camera.width || 320, state.config.camera.height || 240);
+  document.getElementById('cam_rotation').value = String(state.config.camera.rotation ?? 0);
   document.getElementById('cam_jpeg_quality').value = state.config.camera.jpeg_quality || 12;
   document.getElementById('cam_auto_exposure').checked = !!state.config.camera.auto_exposure;
   document.getElementById('cam_auto_gain').checked = !!state.config.camera.auto_gain;
@@ -1746,6 +1766,7 @@ function updatePanelsFromForm(){
   const parts = frameValue.split('x');
   state.config.camera.width = parseInt(parts[0] || '320', 10);
   state.config.camera.height = parseInt(parts[1] || '240', 10);
+  state.config.camera.rotation = parseInt(document.getElementById('cam_rotation').value || '0', 10);
   state.config.camera.jpeg_quality = parseInt(document.getElementById('cam_jpeg_quality').value || '12', 10);
   state.config.camera.auto_exposure = document.getElementById('cam_auto_exposure').checked;
   state.config.camera.auto_gain = document.getElementById('cam_auto_gain').checked;
@@ -2399,8 +2420,9 @@ function moveDrag(ev){
   const dy = (p.y - state.drag.startMouseY) / state.zoom;
 
   if (state.drag.mode === 'move') {
-    roi.x = clampInt(state.drag.startX + dx, 0, state.config.camera.width - 1);
-    roi.y = clampInt(state.drag.startY + dy, 0, state.config.camera.height - 1);
+    const dimensions = cameraViewDimensions();
+    roi.x = clampInt(state.drag.startX + dx, 0, dimensions.width - 1);
+    roi.y = clampInt(state.drag.startY + dy, 0, dimensions.height - 1);
   } else {
     let x = state.drag.startX;
     let y = state.drag.startY;
@@ -2428,11 +2450,12 @@ function moveDrag(ev){
     w = Math.max(1, w);
     h = Math.max(1, h);
 
-    x = clampInt(x, 0, state.config.camera.width - 1);
-    y = clampInt(y, 0, state.config.camera.height - 1);
+    const dimensions = cameraViewDimensions();
+    x = clampInt(x, 0, dimensions.width - 1);
+    y = clampInt(y, 0, dimensions.height - 1);
 
-    if (x + w > state.config.camera.width) w = state.config.camera.width - x;
-    if (y + h > state.config.camera.height) h = state.config.camera.height - y;
+    if (x + w > dimensions.width) w = dimensions.width - x;
+    if (y + h > dimensions.height) h = dimensions.height - y;
 
     roi.x = Math.round(x);
     roi.y = Math.round(y);
