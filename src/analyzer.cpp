@@ -592,6 +592,8 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
 bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
   doc.clear();
   doc["valid"] = true;
+  bool hasNumericRoi = false;
+  bool anyNumericValue = false;
 
   for (auto &roi : cfg.rois) {
     if (roi.type == "symbol") {
@@ -613,6 +615,7 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
       LOGA("mqtt symbol roi=%s avg=%d state=%s\n",
            roi.id.c_str(), avg, state ? "ON" : "OFF");
     } else if (roi.type == "sevenseg") {
+      hasNumericRoi = true;
       const SegSample *segs = findProfile(cfg.seg_profiles, roi.seg_profile);
       double value = -1.0;
       bool ok = evaluateSevenSegNoDebug(fb, roi, segs, value);
@@ -627,6 +630,7 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
         LOGE("sevenseg roi=%s invalid: avg_gray=%d threshold=%d x=%d y=%d w=%d h=%d\n",
              roi.id.c_str(), roiAvg, roi.threshold, roi.x, roi.y, roi.w, roi.h);
       } else {
+        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           doc[roi.id] = value;
           LOGD("mqtt sevenseg roi=%s value=%f\n", roi.id.c_str(), value);
@@ -639,6 +643,10 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
     }
   }
 
+  if (hasNumericRoi) {
+    doc["display_active"] = anyNumericValue;
+  }
+
   return true;
 }
 
@@ -648,6 +656,8 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
 
   JsonObject result = doc["result"].to<JsonObject>();
   result["valid"] = true;
+  bool hasNumericRoi = false;
+  bool anyNumericValue = false;
 
   JsonArray symbols = doc["debug"]["symbols"].to<JsonArray>();
   JsonArray sevensegs = doc["debug"]["sevenseg"].to<JsonArray>();
@@ -684,6 +694,7 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
       o["threshold_off"] = roi.threshold_off;
       o["invert_logic"] = roi.invert_logic;
     } else if (roi.type == "sevenseg") {
+      hasNumericRoi = true;
       JsonObject o = sevensegs.add<JsonObject>();
       o["id"] = roi.id;
       o["digits"] = roi.digits;
@@ -699,6 +710,7 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
         result[roi.id] = -1;
         LOGD("sevenseg roi=%s invalid result\n", roi.id.c_str());
       } else {
+        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           result[roi.id] = value;
           LOGD("sevenseg roi=%s value=%f\n", roi.id.c_str(), value);
@@ -709,6 +721,10 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
         }
       }
     }
+  }
+
+  if (hasNumericRoi) {
+    result["display_active"] = anyNumericValue;
   }
 
   String out;

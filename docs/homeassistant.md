@@ -50,6 +50,13 @@ Auch hier kann häufig **Auto** verwendet werden.
 
 Nach Aktivierung erscheinen die Sensoren automatisch über **MQTT Auto Discovery** in Home Assistant.
 
+Zusätzlich wird automatisch der Binärsensor **Display Active** angelegt. Er ist
+eingeschaltet, sobald mindestens eine numerische ROI einen Wert erkennt. Sind
+alle numerischen ROIs leer, meldet er `OFF`. Teilweise ungültige Messungen
+gelten nicht als ausgeschaltetes Display; in diesem Fall bleiben die zuletzt
+gültigen Zahlen erhalten. Bei einem leeren Display wechseln numerische
+Entitäten auf `unknown`, statt einen künstlichen Wert wie `-1` zu melden.
+
 ---
 
 ## Mehrere Geräte am selben Broker

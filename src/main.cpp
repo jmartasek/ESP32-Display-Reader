@@ -148,6 +148,8 @@ static String evaluateMedian3State(AppConfig &cfg) {
 
   JsonDocument out;
   out["valid"] = true;
+  bool hasNumericRoi = false;
+  bool anyNumericValue = false;
 
   for (const auto &roi : cfg.rois) {
     if (roi.type == "symbol") {
@@ -161,6 +163,7 @@ static String evaluateMedian3State(AppConfig &cfg) {
       LOGD("median symbol roi=%s values=%d,%d,%d -> %d\n",
            roi.id.c_str(), v1, v2, v3, v);
     } else if (roi.type == "sevenseg") {
+      hasNumericRoi = true;
       double v1 = ok1 ? (d1[roi.id] | -1.0) : -1.0;
       double v2 = ok2 ? (d2[roi.id] | -1.0) : -1.0;
       double v3 = ok3 ? (d3[roi.id] | -1.0) : -1.0;
@@ -177,12 +180,14 @@ static String evaluateMedian3State(AppConfig &cfg) {
         LOGD("median sevenseg roi=%s values=%f,%f,%f -> invalid\n",
              roi.id.c_str(), v1, v2, v3);
       } else if (count == 1) {
+        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           out[roi.id] = validVals[0];
         } else {
           out[roi.id] = (int)round(validVals[0]);
         }
       } else if (count == 2) {
+        anyNumericValue = true;
         double v = (validVals[0] + validVals[1]) / 2.0;
         if (roi.decimal_places > 0) {
           out[roi.id] = v;
@@ -190,6 +195,7 @@ static String evaluateMedian3State(AppConfig &cfg) {
           out[roi.id] = (int)round(v);
         }
       } else {
+        anyNumericValue = true;
         double v = median3Double(validVals[0], validVals[1], validVals[2]);
         if (roi.decimal_places > 0) {
           out[roi.id] = v;
@@ -198,6 +204,10 @@ static String evaluateMedian3State(AppConfig &cfg) {
         }
       }
     }
+  }
+
+  if (hasNumericRoi) {
+    out["display_active"] = anyNumericValue;
   }
 
   String payload;
@@ -211,6 +221,55 @@ static bool payloadIsValidState(const String &payload) {
   if (deserializeJson(doc, payload)) return false;
 
   return doc["valid"] | false;
+}
+
+static bool payloadReportsBlankDisplay(const String &payload) {
+  JsonDocument doc;
+  if (deserializeJson(doc, payload)) return false;
+  return doc["display_active"].is<bool>() && !doc["display_active"].as<bool>();
+}
+
+static String buildBlankDisplayPayload(const String &newPayload) {
+  JsonDocument doc;
+
+  if (deserializeJson(doc, newPayload)) {
+    doc.clear();
+  }
+
+  for (const auto &roi : cfg.rois) {
+    if (roi.type == "sevenseg") {
+      doc[roi.id] = nullptr;
+    }
+  }
+
+  doc["valid"] = false;
+  doc["display_active"] = false;
+
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
+static void acceptEvaluationPayload(const String &newPayload) {
+  if (payloadIsValidState(newPayload)) {
+    lastPayload = newPayload;
+    lastGoodPayload = newPayload;
+    LOGD("New valid payload accepted\n");
+    return;
+  }
+
+  if (payloadReportsBlankDisplay(newPayload)) {
+    lastPayload = buildBlankDisplayPayload(newPayload);
+    LOGI("Display blank, publishing display_active=false\n");
+    return;
+  }
+
+  LOGE("New payload invalid, keeping last valid payload\n");
+  if (lastGoodPayload.length() > 2) {
+    lastPayload = lastGoodPayload;
+  } else {
+    lastPayload = newPayload;
+  }
 }
 
 static void maybeRestartCamera() {
@@ -389,19 +448,7 @@ void loop() {
 
         String newPayload = runActiveEvaluation(cfg);
 
-        if (payloadIsValidState(newPayload)) {
-          lastPayload = newPayload;
-          lastGoodPayload = newPayload;
-          LOGD("New valid payload accepted\n");
-        } else {
-          LOGE("New payload invalid, keeping last valid payload\n");
-
-          if (lastGoodPayload.length() > 2) {
-            lastPayload = lastGoodPayload;
-          } else {
-            lastPayload = newPayload;
-          }
-        }
+        acceptEvaluationPayload(newPayload);
 
         mqttPublishState(mqtt, cfg, lastPayload);
         maybePublishMqttImage(mqtt, cfg);
@@ -424,19 +471,7 @@ void loop() {
 
         String newPayload = runActiveEvaluation(cfg);
 
-        if (payloadIsValidState(newPayload)) {
-          lastPayload = newPayload;
-          lastGoodPayload = newPayload;
-          LOGD("New valid payload accepted\n");
-        } else {
-          LOGE("New payload invalid, keeping last valid payload\n");
-
-          if (lastGoodPayload.length() > 2) {
-            lastPayload = lastGoodPayload;
-          } else {
-            lastPayload = newPayload;
-          }
-        }
+        acceptEvaluationPayload(newPayload);
 
         mqttPublishState(mqtt, cfg, lastPayload);
         maybePublishMqttImage(mqtt, cfg);

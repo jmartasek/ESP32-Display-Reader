@@ -86,6 +86,22 @@ static String haCameraConfigTopic(const AppConfig &cfg) {
   return cfg.ha.discovery_prefix + "/image/" + haCameraObjectId(cfg) + "/config";
 }
 
+static String haDisplayActiveObjectId(const AppConfig &cfg) {
+  return sanitizeId(devicePersistentUid() + "_display_active");
+}
+
+static String haDisplayActiveConfigTopic(const AppConfig &cfg) {
+  return cfg.ha.discovery_prefix + "/binary_sensor/" +
+         haDisplayActiveObjectId(cfg) + "/config";
+}
+
+static bool configHasNumericRoi(const AppConfig &cfg) {
+  for (const auto &roi : cfg.rois) {
+    if (roi.type == "sevenseg") return true;
+  }
+  return false;
+}
+
 static String haEntityNameForRoi(const Roi &roi) {
   if (roi.ha_name.length() > 0) {
     return roi.ha_name;
@@ -385,6 +401,44 @@ static void publishDiscoveryForSnapshot(PubSubClient &mqtt, const AppConfig &cfg
   }
 }
 
+static void publishDiscoveryForDisplayActive(PubSubClient &mqtt, const AppConfig &cfg) {
+  JsonDocument doc;
+  const String objectId = haDisplayActiveObjectId(cfg);
+
+  doc["name"] = "Display Active";
+  doc["object_id"] = objectId;
+  doc["unique_id"] = devicePersistentUid() + "_display_active";
+  doc["state_topic"] = cfg.mqtt.topic;
+  doc["value_template"] =
+      "{{ 'ON' if value_json.get('display_active', false) else 'OFF' }}";
+  doc["availability_topic"] = mqttAvailabilityTopic(cfg);
+  doc["payload_available"] = "online";
+  doc["payload_not_available"] = "offline";
+  doc["payload_on"] = "ON";
+  doc["payload_off"] = "OFF";
+  doc["icon"] = "mdi:monitor";
+
+  JsonObject device = doc["device"].to<JsonObject>();
+  JsonArray identifiers = device["identifiers"].to<JsonArray>();
+  identifiers.add(devicePersistentUid());
+  device["name"] = cfg.device.name;
+  device["manufacturer"] = "Dr.Big";
+  device["model"] = "ESP32 Display Reader";
+
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
+  device["sw_version"] = FW_VERSION;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  bool ok = publishOnce(mqtt, haDisplayActiveConfigTopic(cfg), payload);
+  if (ok) {
+    LOGI("HA display-active discovery publish ok\n");
+  }
+}
+
 void mqttPublishHomeAssistantDiscovery(PubSubClient &mqtt, const AppConfig &cfg) {
   if (!cfg.mqtt.enabled) {
     LOGD("HA discovery skipped: MQTT disabled\n");
@@ -402,6 +456,11 @@ void mqttPublishHomeAssistantDiscovery(PubSubClient &mqtt, const AppConfig &cfg)
   for (const auto &roi : cfg.rois) {
     publishDiscoveryForRoi(mqtt, cfg, roi);
     delay(50);  // give WiFi/lwIP time to drain TCP write buffer (AP+STA mode needs more)
+  }
+
+  if (configHasNumericRoi(cfg)) {
+    publishDiscoveryForDisplayActive(mqtt, cfg);
+    delay(50);
   }
 
   publishDiscoveryForSnapshot(mqtt, cfg);
