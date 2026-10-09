@@ -1,6 +1,6 @@
 {
   "name": "ESP32 Display Reader",
-  "version": "1.0.016",
+  "version": "1.0.022",
   "builds": [
     {
       "chipFamily": "ESP32",

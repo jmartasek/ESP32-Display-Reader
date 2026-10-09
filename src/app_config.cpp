@@ -214,6 +214,8 @@ void loadDefaultConfig(AppConfig &cfg) {
     false,
     false,
     false,
+    false,
+    false,
     0,
     true,
     "",
@@ -236,6 +238,8 @@ void loadDefaultConfig(AppConfig &cfg) {
     {},   // gaps (empty = uniform)
     125,
     105,
+    false,
+    false,
     false,
     false,
     false,
@@ -280,6 +284,8 @@ static void roiToJson(JsonObject o, const Roi &r) {
   o["invert_logic"] = r.invert_logic;
   o["auto_threshold"] = r.auto_threshold;
   o["stretch_contrast"] = r.stretch_contrast;
+  o["blank_as_zero"] = r.blank_as_zero;
+  o["require_all_digits"] = r.require_all_digits;
   o["confidence_margin"] = r.confidence_margin;
   o["ha_enabled"] = r.ha_enabled;
   o["ha_name"] = r.ha_name;
@@ -690,6 +696,8 @@ bool configFromJson(const String &json, AppConfig &cfg) {
       r.invert_logic = o["invert_logic"] | false;
       r.auto_threshold = o["auto_threshold"] | false;
       r.stretch_contrast = o["stretch_contrast"] | false;
+      r.blank_as_zero = o["blank_as_zero"] | false;
+      r.require_all_digits = o["require_all_digits"] | false;
       r.confidence_margin = o["confidence_margin"] | 0;
 
       r.ha_enabled = o["ha_enabled"] | true;

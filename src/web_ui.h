@@ -910,6 +910,12 @@ progress{
 
             <div class="two">
               <label><input id="f_stretch_contrast" type="checkbox">Contrast Stretch (per digit)</label>
+              <label><input id="f_blank_as_zero" type="checkbox">Blank digits mean zero</label>
+            </div>
+
+            <label><input id="f_require_all_digits" type="checkbox">Require every digit position</label>
+
+            <div class="two">
               <label>Confidence Margin <input id="f_confidence_margin" type="number" min="0" max="100" style="width:60px"></label>
             </div>
 
@@ -993,6 +999,7 @@ progress{
                 <option value="kWh">kWh</option>
                 <option value="V">V</option>
                 <option value="A">A</option>
+                <option value="min">min</option>
                 <option value="h">h</option>
                 <option value="L">L</option>
                 <option value="m³">m³</option>
@@ -1671,6 +1678,8 @@ function fillForm(roi){
   document.getElementById('f_h').value = roi.h || 1;
   document.getElementById('f_threshold').value = roi.threshold || 105;
   document.getElementById('f_stretch_contrast').checked = !!roi.stretch_contrast;
+  document.getElementById('f_blank_as_zero').checked = !!roi.blank_as_zero;
+  document.getElementById('f_require_all_digits').checked = !!roi.require_all_digits;
   document.getElementById('f_confidence_margin').value = roi.confidence_margin || 0;
   document.getElementById('f_gap').value = roi.digit_gap_px || 8;
   document.getElementById('f_digits').value = roi.digits || 2;
@@ -1850,6 +1859,8 @@ function updateSelectedFromForm(){
   roi.h = Math.max(1, parseInt(document.getElementById('f_h').value || '1', 10));
   roi.threshold = parseInt(document.getElementById('f_threshold').value || '105', 10);
   roi.stretch_contrast = document.getElementById('f_stretch_contrast').checked;
+  roi.blank_as_zero = document.getElementById('f_blank_as_zero').checked;
+  roi.require_all_digits = document.getElementById('f_require_all_digits').checked;
   roi.confidence_margin = Math.max(0, parseInt(document.getElementById('f_confidence_margin').value || '0', 10));
   roi.digit_gap_px = parseInt(document.getElementById('f_gap').value || '8', 10);
   roi.digits = Math.max(1, Math.min(10, parseInt(document.getElementById('f_digits').value || '2', 10)));
@@ -2610,6 +2621,8 @@ function addSevenSeg(){
     invert_logic:false,
     auto_threshold:false,
     stretch_contrast:false,
+    blank_as_zero:false,
+    require_all_digits:false,
     confidence_margin:0,
     ha_enabled:false,
     ha_name:'',
@@ -2645,6 +2658,8 @@ function addSymbol(){
     invert_logic:false,
     auto_threshold:false,
     stretch_contrast:false,
+    blank_as_zero:false,
+    require_all_digits:false,
     confidence_margin:0,
     ha_enabled:false,
     ha_name:'',
@@ -2793,7 +2808,7 @@ async function testEval(){
 
 [
   'f_id','f_label','f_ha_enabled','f_ha_name','f_ha_unit','f_ha_icon','f_ha_device_class','f_ha_state_class',
-  'f_type','f_invert_logic','f_auto_threshold','f_stretch_contrast','f_confidence_margin','f_x','f_y','f_w','f_h','f_threshold','f_gap','f_digits','f_decimal_places','f_on','f_off',
+  'f_type','f_invert_logic','f_auto_threshold','f_stretch_contrast','f_blank_as_zero','f_require_all_digits','f_confidence_margin','f_x','f_y','f_w','f_h','f_threshold','f_gap','f_digits','f_decimal_places','f_on','f_off',
   'cam_model','cam_frame','cam_jpeg_quality',
   'cam_auto_exposure','cam_auto_gain','cam_auto_whitebalance','cam_vflip','cam_hflip','cam_aec_value','cam_agc_gain',
   'm_image_enabled',

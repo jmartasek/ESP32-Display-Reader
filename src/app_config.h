@@ -129,6 +129,8 @@ struct Roi {
   bool invert_logic;
   bool auto_threshold;
   bool stretch_contrast;
+  bool blank_as_zero;
+  bool require_all_digits;
   int confidence_margin;
 
   bool ha_enabled;

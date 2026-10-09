@@ -50,10 +50,19 @@ static bool majority3Bool(bool a, bool b, bool c) {
   return (a + b + c) >= 2;
 }
 
-static double median3Double(double a, double b, double c) {
-  if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
-  if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
-  return c;
+static bool matchingNumericMajority(const double values[3], int count, double &out) {
+  if (count < 2) return false;
+
+  for (int i = 0; i < count - 1; i++) {
+    for (int j = i + 1; j < count; j++) {
+      if (fabs(values[i] - values[j]) < 0.000001) {
+        out = values[i];
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 String runActiveEvaluation(AppConfig &cfg) {
@@ -174,34 +183,21 @@ static String evaluateMedian3State(AppConfig &cfg) {
       if (v2 >= 0) validVals[count++] = v2;
       if (v3 >= 0) validVals[count++] = v3;
 
-      if (count == 0) {
+      double agreedValue = -1.0;
+      if (!matchingNumericMajority(validVals, count, agreedValue)) {
         out["valid"] = false;
         out[roi.id] = -1;
-        LOGD("median sevenseg roi=%s values=%f,%f,%f -> invalid\n",
-             roi.id.c_str(), v1, v2, v3);
-      } else if (count == 1) {
-        anyNumericValue = true;
-        if (roi.decimal_places > 0) {
-          out[roi.id] = validVals[0];
-        } else {
-          out[roi.id] = (int)round(validVals[0]);
-        }
-      } else if (count == 2) {
-        anyNumericValue = true;
-        double v = (validVals[0] + validVals[1]) / 2.0;
-        if (roi.decimal_places > 0) {
-          out[roi.id] = v;
-        } else {
-          out[roi.id] = (int)round(v);
-        }
+        LOGD("majority sevenseg roi=%s values=%f,%f,%f valid_count=%d -> invalid\n",
+             roi.id.c_str(), v1, v2, v3, count);
       } else {
         anyNumericValue = true;
-        double v = median3Double(validVals[0], validVals[1], validVals[2]);
         if (roi.decimal_places > 0) {
-          out[roi.id] = v;
+          out[roi.id] = agreedValue;
         } else {
-          out[roi.id] = (int)round(v);
+          out[roi.id] = (int)round(agreedValue);
         }
+        LOGD("majority sevenseg roi=%s values=%f,%f,%f valid_count=%d -> %f\n",
+             roi.id.c_str(), v1, v2, v3, count, agreedValue);
       }
     }
   }

@@ -478,6 +478,8 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
   bool started = false;
   bool anyValid = false;
   bool allValid = true;
+  bool allBlank = true;
+  bool everyDigitValid = true;
 
   for (int i = 0; i < digits; i++) {
     Rect dr{
@@ -498,6 +500,7 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
     JsonObject segDbg = digitDbg["segments"].to<JsonObject>();
 
     uint8_t bits = readDigit7Seg(fb, dr, threshold, roi.invert_logic, segs, segDbg, roi.stretch_contrast, roi.confidence_margin);
+    if (bits != 0) allBlank = false;
     int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigit(bits);
     decoded[i] = d;
     digitDbg["value"] = d;
@@ -509,11 +512,18 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
       started = true;
       anyValid = true;
     } else {
+      everyDigitValid = false;
       if (started) allValid = false;
     }
   }
 
-  if (!anyValid || !allValid) {
+  if (!anyValid && allBlank && roi.blank_as_zero) {
+    outObj["blank_as_zero_applied"] = true;
+    outValue = 0.0;
+    return true;
+  }
+
+  if (!anyValid || !allValid || (roi.require_all_digits && !everyDigitValid)) {
     outValue = -1.0;
     return false;
   }
@@ -544,6 +554,8 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
   bool started = false;
   bool anyValid = false;
   bool allValid = true;
+  bool allBlank = true;
+  bool everyDigitValid = true;
 
   for (int i = 0; i < digits; i++) {
     Rect dr{
@@ -559,6 +571,7 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
       : roi.threshold;
 
     uint8_t bits = readDigit7SegNoDebug(fb, dr, threshold, roi.invert_logic, segs, roi.stretch_contrast, roi.confidence_margin);
+    if (bits != 0) allBlank = false;
     int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigit(bits);
     decoded[i] = d;
 
@@ -569,11 +582,17 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
       started = true;
       anyValid = true;
     } else {
+      everyDigitValid = false;
       if (started) allValid = false;
     }
   }
 
-  if (!anyValid || !allValid) {
+  if (!anyValid && allBlank && roi.blank_as_zero) {
+    outValue = 0.0;
+    return true;
+  }
+
+  if (!anyValid || !allValid || (roi.require_all_digits && !everyDigitValid)) {
     outValue = -1.0;
     return false;
   }
