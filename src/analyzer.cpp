@@ -448,7 +448,8 @@ static double applyDecimalPlaces(int rawValue, const Roi &roi) {
   return ((double)rawValue) / scale;
 }
 
-static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSample segs[7], JsonObject outObj, double &outValue) {
+static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSample segs[7], JsonObject outObj, double &outValue, bool *observedSegments = nullptr) {
+  if (observedSegments) *observedSegments = false;
   // Globaler Threshold nur als Fallback/Log; bei auto_threshold wird pro Stelle berechnet.
   const int globalThreshold = roi.auto_threshold
     ? otsuThreshold(fb, roi.x, roi.y, roi.w, roi.h)
@@ -517,6 +518,9 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
     }
   }
 
+  outObj["observed_segments"] = !allBlank;
+  if (observedSegments) *observedSegments = !allBlank;
+
   if (!anyValid && allBlank && roi.blank_as_zero) {
     outObj["blank_as_zero_applied"] = true;
     outValue = 0.0;
@@ -539,7 +543,8 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
   return true;
 }
 
-static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSample segs[7], double &outValue) {
+static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSample segs[7], double &outValue, bool *observedSegments = nullptr) {
+  if (observedSegments) *observedSegments = false;
   int digits = 0;
   int gap = 0;
   int digitW = 0;
@@ -587,6 +592,8 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
     }
   }
 
+  if (observedSegments) *observedSegments = !allBlank;
+
   if (!anyValid && allBlank && roi.blank_as_zero) {
     outValue = 0.0;
     return true;
@@ -612,7 +619,7 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
   doc.clear();
   doc["valid"] = true;
   bool hasNumericRoi = false;
-  bool anyNumericValue = false;
+  bool anyObservedNumericSegments = false;
 
   for (auto &roi : cfg.rois) {
     if (roi.type == "symbol") {
@@ -637,7 +644,9 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
       hasNumericRoi = true;
       const SegSample *segs = findProfile(cfg.seg_profiles, roi.seg_profile);
       double value = -1.0;
-      bool ok = evaluateSevenSegNoDebug(fb, roi, segs, value);
+      bool observedSegments = false;
+      bool ok = evaluateSevenSegNoDebug(fb, roi, segs, value, &observedSegments);
+      if (observedSegments) anyObservedNumericSegments = true;
 
       if (!ok) {
         doc["valid"] = false;
@@ -649,7 +658,6 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
         LOGE("sevenseg roi=%s invalid: avg_gray=%d threshold=%d x=%d y=%d w=%d h=%d\n",
              roi.id.c_str(), roiAvg, roi.threshold, roi.x, roi.y, roi.w, roi.h);
       } else {
-        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           doc[roi.id] = value;
           LOGD("mqtt sevenseg roi=%s value=%f\n", roi.id.c_str(), value);
@@ -663,7 +671,7 @@ bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
   }
 
   if (hasNumericRoi) {
-    doc["display_active"] = anyNumericValue;
+    doc["display_active"] = anyObservedNumericSegments;
   }
 
   return true;
@@ -676,7 +684,7 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
   JsonObject result = doc["result"].to<JsonObject>();
   result["valid"] = true;
   bool hasNumericRoi = false;
-  bool anyNumericValue = false;
+  bool anyObservedNumericSegments = false;
 
   JsonArray symbols = doc["debug"]["symbols"].to<JsonArray>();
   JsonArray sevensegs = doc["debug"]["sevenseg"].to<JsonArray>();
@@ -722,14 +730,15 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
 
       const SegSample *segs = findProfile(cfg.seg_profiles, roi.seg_profile);
       double value = -1.0;
-      bool ok = evaluateSevenSegDebug(fb, roi, segs, o, value);
+      bool observedSegments = false;
+      bool ok = evaluateSevenSegDebug(fb, roi, segs, o, value, &observedSegments);
+      if (observedSegments) anyObservedNumericSegments = true;
 
       if (!ok) {
         result["valid"] = false;
         result[roi.id] = -1;
         LOGD("sevenseg roi=%s invalid result\n", roi.id.c_str());
       } else {
-        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           result[roi.id] = value;
           LOGD("sevenseg roi=%s value=%f\n", roi.id.c_str(), value);
@@ -743,7 +752,7 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
   }
 
   if (hasNumericRoi) {
-    result["display_active"] = anyNumericValue;
+    result["display_active"] = anyObservedNumericSegments;
   }
 
   String out;

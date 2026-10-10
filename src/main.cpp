@@ -158,7 +158,6 @@ static String evaluateMedian3State(AppConfig &cfg) {
   JsonDocument out;
   out["valid"] = true;
   bool hasNumericRoi = false;
-  bool anyNumericValue = false;
 
   for (const auto &roi : cfg.rois) {
     if (roi.type == "symbol") {
@@ -190,7 +189,6 @@ static String evaluateMedian3State(AppConfig &cfg) {
         LOGD("majority sevenseg roi=%s values=%f,%f,%f valid_count=%d -> invalid\n",
              roi.id.c_str(), v1, v2, v3, count);
       } else {
-        anyNumericValue = true;
         if (roi.decimal_places > 0) {
           out[roi.id] = agreedValue;
         } else {
@@ -203,7 +201,10 @@ static String evaluateMedian3State(AppConfig &cfg) {
   }
 
   if (hasNumericRoi) {
-    out["display_active"] = anyNumericValue;
+    bool active1 = ok1 && (d1["display_active"] | false);
+    bool active2 = ok2 && (d2["display_active"] | false);
+    bool active3 = ok3 && (d3["display_active"] | false);
+    out["display_active"] = majority3Bool(active1, active2, active3);
   }
 
   String payload;
