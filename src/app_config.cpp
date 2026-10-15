@@ -50,6 +50,7 @@ static void normalizeCameraRotation(CameraConfig &camera) {
 }
 
 void loadDefaultConfig(AppConfig &cfg) {
+  cfg.registration = RegistrationConfig();
 
   /* Segment Profiles */
 
@@ -376,6 +377,11 @@ String configToJson(const AppConfig &cfg) {
   /* Timing */
 
   doc["timing"]["capture_interval_sec"] = cfg.capture_interval_sec;
+  doc["registration"]["enabled"] = cfg.registration.enabled;
+  doc["registration"]["radius_x"] = cfg.registration.radius_x;
+  doc["registration"]["radius_y"] = cfg.registration.radius_y;
+  doc["registration"]["minimum_contrast"] = cfg.registration.minimum_contrast;
+  doc["registration"]["minimum_separation"] = cfg.registration.minimum_separation;
 
   /* Debug */
 
@@ -573,6 +579,11 @@ bool configFromJson(const String &json, AppConfig &cfg) {
   /* Timing */
 
   next.capture_interval_sec = doc["timing"]["capture_interval_sec"] | cfg.capture_interval_sec;
+  next.registration.enabled = doc["registration"]["enabled"] | cfg.registration.enabled;
+  next.registration.radius_x = constrain(doc["registration"]["radius_x"] | cfg.registration.radius_x, 0, 32);
+  next.registration.radius_y = constrain(doc["registration"]["radius_y"] | cfg.registration.radius_y, 0, 20);
+  next.registration.minimum_contrast = constrain(doc["registration"]["minimum_contrast"] | cfg.registration.minimum_contrast, 20, 200);
+  next.registration.minimum_separation = constrain(doc["registration"]["minimum_separation"] | cfg.registration.minimum_separation, 1, 30);
 
   /* Debug */
 

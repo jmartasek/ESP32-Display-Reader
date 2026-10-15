@@ -114,7 +114,7 @@ static String haEntityNameForRoi(const Roi &roi) {
 
 static String haValueTemplateForRoi(const Roi &roi) {
   if (roi.type == "symbol") {
-    return "{{ 'ON' if value_json['" + roi.id + "'] else 'OFF' }}";
+    return "{{ 'None' if value_json.get('" + roi.id + "') is none else 'ON' if value_json['" + roi.id + "'] else 'OFF' }}";
   }
   return "{{ value_json['" + roi.id + "'] }}";
 }
@@ -410,7 +410,7 @@ static void publishDiscoveryForDisplayActive(PubSubClient &mqtt, const AppConfig
   doc["unique_id"] = devicePersistentUid() + "_display_active";
   doc["state_topic"] = cfg.mqtt.topic;
   doc["value_template"] =
-      "{{ 'ON' if value_json.get('display_active', false) else 'OFF' }}";
+      "{{ 'None' if value_json.get('display_active') is none else 'ON' if value_json['display_active'] else 'OFF' }}";
   doc["availability_topic"] = mqttAvailabilityTopic(cfg);
   doc["payload_available"] = "online";
   doc["payload_not_available"] = "offline";

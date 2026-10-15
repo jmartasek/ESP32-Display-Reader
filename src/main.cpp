@@ -17,6 +17,7 @@
 #include "web_server.h"
 #include "ota_service.h"
 #include "light_service.h"
+#include "registration_core.h"
 
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
@@ -166,7 +167,14 @@ static String evaluateMedian3State(AppConfig &cfg) {
       bool v3 = ok3 ? (d3[roi.id] | false) : false;
 
       bool v = majority3Bool(v1, v2, v3);
-      out[roi.id] = v;
+      if (cfg.registration.enabled) {
+        const int vote = registration::vote3(
+            ok1 && d1[roi.id].is<bool>() ? int(v1) : -1,
+            ok2 && d2[roi.id].is<bool>() ? int(v2) : -1,
+            ok3 && d3[roi.id].is<bool>() ? int(v3) : -1);
+        if (vote < 0) out[roi.id] = nullptr;
+        else out[roi.id] = bool(vote);
+      } else out[roi.id] = v;
 
       LOGD("median symbol roi=%s values=%d,%d,%d -> %d\n",
            roi.id.c_str(), v1, v2, v3, v);
@@ -185,7 +193,8 @@ static String evaluateMedian3State(AppConfig &cfg) {
       double agreedValue = -1.0;
       if (!matchingNumericMajority(validVals, count, agreedValue)) {
         out["valid"] = false;
-        out[roi.id] = -1;
+        if (cfg.registration.enabled) out[roi.id] = nullptr;
+        else out[roi.id] = -1;
         LOGD("majority sevenseg roi=%s values=%f,%f,%f valid_count=%d -> invalid\n",
              roi.id.c_str(), v1, v2, v3, count);
       } else {
@@ -204,7 +213,16 @@ static String evaluateMedian3State(AppConfig &cfg) {
     bool active1 = ok1 && (d1["display_active"] | false);
     bool active2 = ok2 && (d2["display_active"] | false);
     bool active3 = ok3 && (d3["display_active"] | false);
-    out["display_active"] = majority3Bool(active1, active2, active3);
+    if (cfg.registration.enabled) {
+      const int vote = registration::vote3(
+          ok1 && d1["display_active"].is<bool>() ? int(active1) : -1,
+          ok2 && d2["display_active"].is<bool>() ? int(active2) : -1,
+          ok3 && d3["display_active"].is<bool>() ? int(active3) : -1);
+      if (vote < 0) out["display_active"] = nullptr;
+      else out["display_active"] = bool(vote);
+      out["alignment_state"] = (out["valid"] | false) ? "aligned" :
+          vote != 0 ? "unreadable" : "inactive";
+    } else out["display_active"] = majority3Bool(active1, active2, active3);
   }
 
   String payload;
@@ -258,6 +276,13 @@ static void acceptEvaluationPayload(const String &newPayload) {
   if (payloadReportsBlankDisplay(newPayload)) {
     lastPayload = buildBlankDisplayPayload(newPayload);
     LOGI("Display blank, publishing display_active=false\n");
+    return;
+  }
+
+  if (cfg.registration.enabled) {
+    // Publish explicit unknown numbers during failed alignment. Replaying an
+    // old duration indefinitely makes an unreadable display look trustworthy.
+    lastPayload = newPayload;
     return;
   }
 

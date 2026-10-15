@@ -3,6 +3,7 @@
 #include <math.h>
 #include <vector>
 #include "debug_log.h"
+#include "registration_core.h"
 
 // Hardcoded fallback segment layout (standard profile values).
 // Used when a named profile cannot be found in cfg.seg_profiles.
@@ -288,6 +289,17 @@ static int bitsToDigit(uint8_t bits) {
   }
 }
 
+// The washer's italic 7 repeatedly illuminates the upper-left sample even
+// though that physical segment is off. Keep this correction narrower than the
+// generic fuzzy decoder: accept only the observed 7-plus-f pattern and only
+// for the italic profile.
+static int bitsToDigitForProfile(uint8_t bits, const String &segProfile) {
+  int d = bitsToDigit(bits);
+  if (d >= 0) return d;
+  if (segProfile == "italic" && bits == 0x27) return 7;
+  return -1;
+}
+
 // Wie bitsToDigit, aber mit Hamming-1 Toleranz: wenn kein exakter Match,
 // suche das Digit das sich in genau 1 Bit unterscheidet.
 // Verhindert Fehler durch einen einzelnen Grenzwert-Segment-Messfehler.
@@ -502,7 +514,7 @@ static bool evaluateSevenSegDebug(camera_fb_t *fb, const Roi &roi, const SegSamp
 
     uint8_t bits = readDigit7Seg(fb, dr, threshold, roi.invert_logic, segs, segDbg, roi.stretch_contrast, roi.confidence_margin);
     if (bits != 0) allBlank = false;
-    int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigit(bits);
+    int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigitForProfile(bits, roi.seg_profile);
     decoded[i] = d;
     digitDbg["value"] = d;
 
@@ -577,7 +589,7 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
 
     uint8_t bits = readDigit7SegNoDebug(fb, dr, threshold, roi.invert_logic, segs, roi.stretch_contrast, roi.confidence_margin);
     if (bits != 0) allBlank = false;
-    int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigit(bits);
+    int d = roi.auto_threshold ? bitsToDigitFuzzy(bits) : bitsToDigitForProfile(bits, roi.seg_profile);
     decoded[i] = d;
 
     LOGA("mqtt sevenseg roi=%s digit=%d bits=0x%02X value=%d\n",
@@ -615,8 +627,112 @@ static bool evaluateSevenSegNoDebug(camera_fb_t *fb, const Roi &roi, const SegSa
   return true;
 }
 
+static bool evaluateRegistered(camera_fb_t *fb, AppConfig &cfg, JsonObject result, JsonObject debug) {
+  std::vector<registration::Digit> digits;
+  bool supported = fb && fb->format == PIXFORMAT_GRAYSCALE;
+  for (const auto &roi : cfg.rois) {
+    if (roi.type != "sevenseg") continue;
+    int n, gap, width;
+    if (roi.invert_logic || !computeSevenSegGeometry(roi, n, gap, width) ||
+        width > 128 || roi.h > 128) {
+      supported = false; break;
+    }
+    const SegSample *samples = findProfile(cfg.seg_profiles, roi.seg_profile);
+    for (int i = 0; i < n; ++i) {
+      registration::Digit digit;
+      Rect base{digitXPos(roi, width, i), roi.y, width, roi.h};
+      digit.bounds = {base.x, base.y, base.w, base.h};
+      digit.italic = roi.seg_profile == "italic";
+      digit.allow_blank = roi.blank_as_zero || (!roi.require_all_digits && i < n - 1);
+      for (int s = 0; s < 7; ++s) {
+        Rect r = relRect(base, samples[s].rx, samples[s].ry, samples[s].rw, samples[s].rh);
+        digit.samples[s] = {r.x, r.y, r.w, r.h};
+      }
+      digits.push_back(digit);
+    }
+  }
+  int total_area = 0;
+  for (const auto &digit : digits) total_area += digit.bounds.w * digit.bounds.h;
+  if (total_area > 8192) supported = false;
+  registration::Result alignment;
+  const uint32_t started = millis();
+  if (supported && !digits.empty() && digits.size() <= 12) {
+    alignment = registration::search({fb->buf, (int)fb->width, (int)fb->height}, digits,
+        cfg.registration.radius_x, cfg.registration.radius_y,
+        cfg.registration.minimum_contrast, cfg.registration.minimum_separation);
+  } else supported = false;
+  result["valid"] = alignment.found;
+  if (supported && alignment.activity_known) result["display_active"] = alignment.active;
+  else result["display_active"] = nullptr;
+  const char *status = !supported ? "unsupported_geometry" : alignment.found ? "aligned" : alignment.active || !alignment.activity_known ? "unreadable" : "inactive";
+  result["alignment_state"] = status;
+  if (!debug.isNull()) {
+    JsonObject info = debug["registration"].to<JsonObject>();
+    info["status"] = status;
+    info["found"] = alignment.found;
+    info["dx"] = alignment.dx; info["dy"] = alignment.dy;
+    info["score"] = alignment.score; info["separation"] = alignment.separation;
+    info["elapsed_ms"] = millis() - started;
+    JsonArray thresholds = info["digit_thresholds"].to<JsonArray>();
+    for (int t : alignment.thresholds) thresholds.add(t);
+  }
+  size_t cursor = 0;
+  if (!debug.isNull()) debug["sevenseg"].to<JsonArray>();
+  for (auto &roi : cfg.rois) {
+    if (roi.type == "sevenseg") {
+      if (!alignment.found) { result[roi.id] = nullptr; continue; }
+      int value = 0; bool observed = false;
+      JsonObject detail;
+      if (!debug.isNull()) {
+        detail = debug["sevenseg"].as<JsonArray>().add<JsonObject>();
+        detail["id"] = roi.id;
+        detail["x"] = roi.x + alignment.dx; detail["y"] = roi.y + alignment.dy;
+      }
+      for (int i = 0; i < roi.digits; ++i, ++cursor) {
+        int digit = alignment.values[cursor];
+        if (digit < 0 && observed) result["valid"] = false;
+        if (digit >= 0) { observed = true; value = value * 10 + digit; }
+        if (!detail.isNull()) {
+          JsonObject d = detail[String("d") + i].to<JsonObject>();
+          d["value"] = digit < 0 ? -1 : digit;
+          d["segments"]["bits"] = alignment.bits[cursor];
+          d["segments"]["threshold"] = alignment.thresholds[cursor];
+        }
+      }
+      if (!observed && !roi.blank_as_zero) {
+        result["valid"] = false; result[roi.id] = nullptr;
+      } else result[roi.id] = applyDecimalPlaces(value, roi);
+      if (!detail.isNull()) detail["observed_segments"] = observed;
+    } else if (roi.type == "symbol") {
+      if (!alignment.found) { result[roi.id] = nullptr; continue; }
+      int average = avgGray(fb, roi.x + alignment.dx, roi.y + alignment.dy, roi.w, roi.h);
+      int eval = roi.invert_logic ? 255 - average : average;
+      if (roi.auto_threshold) {
+        roi.last_state = eval >= otsuThreshold(fb, roi.x + alignment.dx, roi.y + alignment.dy, roi.w, roi.h);
+      } else if (eval >= roi.threshold_on) roi.last_state = true;
+      else if (eval <= roi.threshold_off) roi.last_state = false;
+      result[roi.id] = roi.last_state;
+    }
+  }
+  if (!(result["valid"] | false)) {
+    for (const auto &roi : cfg.rois) result[roi.id] = nullptr;
+    if (alignment.found) {
+      result["alignment_state"] = "unreadable";
+      if (!debug.isNull()) {
+        debug["registration"]["status"] = "unreadable";
+        debug["registration"]["found"] = false;
+      }
+    }
+  }
+  return supported;
+}
+
 bool evaluateStateToJson(camera_fb_t *fb, AppConfig &cfg, JsonDocument &doc) {
   doc.clear();
+  if (cfg.registration.enabled) {
+    evaluateRegistered(fb, cfg, doc.to<JsonObject>(), JsonObject());
+    return true;
+  }
   doc["valid"] = true;
   bool hasNumericRoi = false;
   bool anyObservedNumericSegments = false;
@@ -682,6 +798,12 @@ String evaluateCurrent(camera_fb_t *fb, AppConfig &cfg) {
   doc["ok"] = true;
 
   JsonObject result = doc["result"].to<JsonObject>();
+  if (cfg.registration.enabled) {
+    evaluateRegistered(fb, cfg, result, doc["debug"].to<JsonObject>());
+    String output;
+    serializeJson(doc, output);
+    return output;
+  }
   result["valid"] = true;
   bool hasNumericRoi = false;
   bool anyObservedNumericSegments = false;

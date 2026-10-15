@@ -822,6 +822,22 @@ progress{
 
   <div class="mainGrid">
     <div class="workspace">
+      <div class="card">
+        <h3>Automatic display alignment</h3>
+        <label><input id="reg_enabled" type="checkbox">Follow display movement</label>
+        <div class="two">
+          <label>Horizontal search ± pixels <input id="reg_x" type="number" min="0" max="32"></label>
+          <label>Vertical search ± pixels <input id="reg_y" type="number" min="0" max="20"></label>
+        </div>
+        <div class="two">
+          <label>Minimum contrast <input id="reg_contrast" type="number" min="20" max="200"></label>
+          <label>Competing-reading margin <input id="reg_margin" type="number" min="1" max="30"></label>
+        </div>
+        <div class="help">For bright seven-segment displays sharing one panel. ROIs remain reference positions.
+          Test Detection shows the detected offset in cyan. Ambiguous reads publish unknown numbers.
+          Existing ROI threshold controls apply when automatic alignment is disabled.</div>
+        <div id="reg_status" role="status">Alignment not evaluated</div>
+      </div>
       <div class="toolbar">
         <button id="btnSnapshot" onclick="loadSnapshot()">Capture</button>
         <button id="btnSave" onclick="saveConfig()" class="highlight">SaveConfig</button>
@@ -1424,12 +1440,15 @@ async function loadStatus(){
 }
 
 async function loadConfig(){
+  state.alignment = null;
   state.config = await api('/api/config');
   fillPanels();
   renderList();
 }
 
 async function loadSnapshot(){
+  state.alignment = null;
+  document.getElementById('reg_status').textContent = 'Alignment not evaluated for this capture';
   const img = document.getElementById('snap');
 
   setButtonBusy('btnSnapshot', true, 'Loading...');
@@ -1745,6 +1764,12 @@ function fillPanels(){
   document.getElementById('m_user').value = state.config.mqtt.username || '';
   document.getElementById('m_pass').value = state.config.mqtt.password || '';
   document.getElementById('m_interval').value = state.config.timing?.capture_interval_sec ?? 60;
+  const registration = state.config.registration || {};
+  document.getElementById('reg_enabled').checked = !!registration.enabled;
+  document.getElementById('reg_x').value = registration.radius_x ?? 24;
+  document.getElementById('reg_y').value = registration.radius_y ?? 12;
+  document.getElementById('reg_contrast').value = registration.minimum_contrast ?? 45;
+  document.getElementById('reg_margin').value = registration.minimum_separation ?? 5;
 
   document.getElementById('ha_prefix').value = state.config.ha?.discovery_prefix || 'homeassistant';
   document.getElementById('d_name').value = state.config.device?.name || '';
@@ -1770,6 +1795,8 @@ function fillPanels(){
 }
 
 function updatePanelsFromForm(){
+  state.alignment = null;
+  document.getElementById('reg_status').textContent = 'Alignment not evaluated for these settings';
   state.config.camera.model = document.getElementById('cam_model').value;
   const frameValue = document.getElementById('cam_frame').value || '320x240';
   const parts = frameValue.split('x');
@@ -1821,6 +1848,13 @@ function updatePanelsFromForm(){
 
   if (!state.config.timing) state.config.timing = {};
   state.config.timing.capture_interval_sec = parseInt(document.getElementById('m_interval').value || '60', 10);
+  state.config.registration = {
+    enabled: document.getElementById('reg_enabled').checked,
+    radius_x: Math.max(0, Math.min(32, parseInt(document.getElementById('reg_x').value || '24', 10))),
+    radius_y: Math.max(0, Math.min(20, parseInt(document.getElementById('reg_y').value || '12', 10))),
+    minimum_contrast: Math.max(20, Math.min(200, parseInt(document.getElementById('reg_contrast').value || '45', 10))),
+    minimum_separation: Math.max(1, Math.min(30, parseInt(document.getElementById('reg_margin').value || '5', 10)))
+  };
 
   if (!state.config.ha) state.config.ha = {};
   state.config.ha.discovery_prefix = document.getElementById('ha_prefix').value;
@@ -2523,6 +2557,29 @@ function draw(){
     ctx.strokeStyle = roi.type === 'symbol' ? '#00d0ff' : '#8cff4f';
     ctx.strokeRect(x, y, w, h);
 
+    if (state.config.registration?.enabled && state.alignment?.found) {
+      const ax = (roi.x + state.alignment.dx) * state.zoom;
+      const ay = (roi.y + state.alignment.dy) * state.zoom;
+      ctx.save();
+      ctx.strokeStyle = '#00ffff';
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(ax, ay, w, h);
+      if (roi.type === 'sevenseg') {
+        const profile = state.config.seg_profiles?.find(p => p.name === roi.seg_profile);
+        const digitW = roiDigitWidth(roi);
+        if (profile) for (let di = 0; di < roi.digits; di++) {
+          const digitX = roiDigitXPos(roi, digitW, di) + state.alignment.dx;
+          for (const [rx, ry, rw, rh] of profile.segs) {
+            ctx.strokeRect((digitX + Math.trunc(digitW * rx)) * state.zoom,
+              (roi.y + state.alignment.dy + Math.trunc(roi.h * ry)) * state.zoom,
+              Math.max(1, Math.trunc(digitW * rw)) * state.zoom,
+              Math.max(1, Math.trunc(roi.h * rh)) * state.zoom);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
     ctx.fillStyle = 'rgba(0,0,0,0.72)';
     ctx.font = '12px sans-serif';
 
@@ -2797,6 +2854,13 @@ async function testEval(){
 
     setOutText(JSON.stringify(res, null, 2));
 
+    state.alignment = res.debug?.registration || null;
+    const alignment = state.alignment;
+    document.getElementById('reg_status').textContent = !alignment ? 'Automatic alignment disabled' :
+      alignment.found ? `Aligned: ${alignment.dx}, ${alignment.dy} px; score ${alignment.score.toFixed(1)}; competing-reading margin ${alignment.separation.toFixed(1)}; ${alignment.elapsed_ms} ms. Overlay applies to this detection frame; the preview is a separate capture.` :
+      `Alignment not found: ${alignment.status}. Numbers are unknown.`;
+    draw();
+
     setButtonBusy('btnTest', false);
     flashButtonState('btnTest', true, '✓ Done');
   } catch (e) {
@@ -2819,6 +2883,7 @@ async function testEval(){
   'm_enabled','m_host','m_port','m_topic','m_user','m_pass','m_interval',
   'ha_prefix','d_name',
   'dbg_level',
+  'reg_enabled','reg_x','reg_y','reg_contrast','reg_margin',
 ].forEach(id => {
   document.addEventListener('change', ev => {
     if (ev.target && ev.target.id === id) {

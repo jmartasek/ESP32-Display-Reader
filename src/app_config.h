@@ -143,7 +143,16 @@ struct Roi {
   String seg_profile; // references SevenSegProfile.name; default "standard"
 };
 
+struct RegistrationConfig {
+  bool enabled = false;
+  int radius_x = 24;
+  int radius_y = 12;
+  int minimum_contrast = 45;
+  int minimum_separation = 5;
+};
+
 struct AppConfig {
+  RegistrationConfig registration;
   WifiConfig wifi;
   DeviceConfig device;
   CameraConfig camera;
